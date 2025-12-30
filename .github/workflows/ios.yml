@@ -1,0 +1,32 @@
+name: Build Sinum iOS
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Build dylib
+        run: |
+          mkdir -p build
+          clang \
+            -dynamiclib \
+            -arch arm64 \
+            -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
+            iOS/*.c \
+            -o build/sinum.dylib
+
+      - name: Upload dylib
+        uses: actions/upload-artifact@v4
+        with:
+          name: sinum-ios
+          path: build/sinum.dylib
