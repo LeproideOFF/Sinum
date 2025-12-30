@@ -18,12 +18,17 @@ jobs:
       - name: Build dylib
         run: |
           mkdir -p build
+          SRC=$(find . -type f \( -name "*.c" -o -name "*.m" \))
+          echo "Sources found:"
+          echo "$SRC"
+
           clang \
             -dynamiclib \
             -arch arm64 \
             -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
-            iOS/main.c \
+            $SRC \
             -o build/sinum.dylib
+
 
       - name: Upload dylib
         uses: actions/upload-artifact@v4
