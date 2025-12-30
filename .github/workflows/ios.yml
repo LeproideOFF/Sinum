@@ -22,7 +22,7 @@ jobs:
             -dynamiclib \
             -arch arm64 \
             -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
-            iOS/*.c \
+            iOS/main.c \
             -o build/sinum.dylib
 
       - name: Upload dylib
