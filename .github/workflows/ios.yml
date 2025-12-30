@@ -10,28 +10,50 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app
 
-      - name: Build dylib
+      - name: Build iOS dylib
         run: |
+          set -e
+
           mkdir -p build
-          SRC=$(find . -type f \( -name "*.c" -o -name "*.m" \))
+
+          # Find Objective-C sources (iOS)
+          SRC=$(find iOS -type f -name "*.m")
+
           echo "Sources found:"
           echo "$SRC"
+
+          if [ -z "$SRC" ]; then
+            echo "❌ No Objective-C source files found"
+            exit 1
+          fi
 
           clang \
             -dynamiclib \
             -arch arm64 \
+            -ObjC \
             -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
             $SRC \
-            -o build/sinum.dylib
+            -framework Foundation \
+            -framework UIKit \
+            -framework CFNetwork \
+            -lobjc \
+            -o build/libSinum.dylib
 
+          echo "✅ Build finished"
 
-      - name: Upload dylib
+      - name: Verify dylib
+        run: |
+          file build/libSinum.dylib
+          otool -L build/libSinum.dylib
+
+      - name: Upload dylib artifact
         uses: actions/upload-artifact@v4
         with:
           name: sinum-ios
-          path: build/sinum.dylib
+          path: build/libSinum.dylib
