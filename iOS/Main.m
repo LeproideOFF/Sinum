@@ -1,14 +1,15 @@
 // Copyright (c) 2025 Project Nova LLC
-// Hook Fortnite 9.41 - Version complète + Mod Menu Debug
+// Hook Fortnite 9.41 - Version complète + Mod Menu Debug v3.1.0
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <UIKit/UIKit.h>
+#import <CoreGraphics/CoreGraphics.h>
 
 #define API_URL @"http://127.0.0.1:3551"
 #define EPIC_GAMES_URL @"ol.epicgames.com"
 #define LOG_SERVER @"http://127.0.0.1:3551/nova/log"
-#define HOOK_VERSION @"3.0.0"
+#define HOOK_VERSION @"3.1.0"
 
 // ─────────────────────────────────────────
 // MARK: - Logger centralisé
@@ -26,13 +27,12 @@ void NovaLog(NSString *level, NSString *format, ...) {
         NSString *urlStr = [NSString stringWithFormat:@"%@?level=%@&msg=%@", LOG_SERVER, level, encoded];
         NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:urlStr]];
         [NSURLProtocol setProperty:@YES forKey:@"Handled" inRequest:req];
-        NSURLSession *s = [NSURLSession sharedSession];
-        [[s dataTaskWithURL:[NSURL URLWithString:urlStr]] resume];
+        [[NSURLSession.sharedSession dataTaskWithURL:[NSURL URLWithString:urlStr]] resume];
     });
 }
 
 // ─────────────────────────────────────────
-// MARK: - Stockage des requêtes (historique)
+// MARK: - Historique requêtes
 // ─────────────────────────────────────────
 
 static NSMutableArray<NSDictionary *> *requestHistory;
@@ -43,26 +43,39 @@ void addToHistory(NSString *method, NSString *url, NSInteger status, double ms) 
     if (!requestHistory) requestHistory = [NSMutableArray array];
     if (requestHistory.count >= 100) [requestHistory removeObjectAtIndex:0];
     [requestHistory addObject:@{
-        @"method": method,
-        @"url": url,
+        @"method": method ?: @"GET",
+        @"url": url ?: @"",
         @"status": @(status),
         @"ms": @(ms),
         @"time": [NSDate date]
     }];
     totalRequests++;
-    if (status >= 400) failedRequests++;
+    if (status >= 400 || status == 0) failedRequests++;
 }
 
 // ─────────────────────────────────────────
-// MARK: - Mod Menu UI
+// MARK: - Helper rootViewController
+// ─────────────────────────────────────────
+
+static UIViewController *NovaRootViewController() {
+    for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if ([scene isKindOfClass:[UIWindowScene class]]) {
+            for (UIWindow *window in scene.windows) {
+                if (window.isKeyWindow) return window.rootViewController;
+            }
+        }
+    }
+    return nil;
+}
+
+// ─────────────────────────────────────────
+// MARK: - Mod Menu Controller
 // ─────────────────────────────────────────
 
 @interface NovaMenuController : UIViewController <UITableViewDelegate, UITableViewDataSource>
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UILabel *statsLabel;
 @property (nonatomic, strong) NSTimer *refreshTimer;
-@property (nonatomic, assign) BOOL interceptEnabled;
-@property (nonatomic, assign) BOOL logEnabled;
 @property (nonatomic, assign) BOOL showOnlyErrors;
 @end
 
@@ -70,13 +83,10 @@ void addToHistory(NSString *method, NSString *url, NSInteger status, double ms) 
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.interceptEnabled = YES;
-    self.logEnabled = YES;
     self.showOnlyErrors = NO;
-
     self.view.backgroundColor = [UIColor colorWithRed:0.05 green:0.05 blue:0.1 alpha:0.97];
 
-    // Header
+    // Titre
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 50, self.view.bounds.size.width, 40)];
     title.text = [NSString stringWithFormat:@"🔧 Nova Hook v%@ — Debug Menu", HOOK_VERSION];
     title.textColor = [UIColor colorWithRed:0.4 green:0.8 blue:1.0 alpha:1.0];
@@ -84,7 +94,7 @@ void addToHistory(NSString *method, NSString *url, NSInteger status, double ms) 
     title.font = [UIFont boldSystemFontOfSize:15];
     [self.view addSubview:title];
 
-    // Stats label
+    // Stats
     self.statsLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 95, self.view.bounds.size.width - 20, 40)];
     self.statsLabel.textColor = [UIColor lightGrayColor];
     self.statsLabel.font = [UIFont systemFontOfSize:11];
@@ -92,16 +102,16 @@ void addToHistory(NSString *method, NSString *url, NSInteger status, double ms) 
     [self.view addSubview:self.statsLabel];
     [self updateStats];
 
-    // Boutons utilitaires
+    // Boutons
     NSArray *buttons = @[
-        @{@"title": @"⏸ Pause Interception", @"action": @"toggleIntercept"},
-        @{@"title": @"📋 Copier Historique", @"action": @"copyHistory"},
-        @{@"title": @"🗑 Vider Historique", @"action": @"clearHistory"},
-        @{@"title": @"⚠️ Filtrer Erreurs", @"action": @"toggleErrors"},
-        @{@"title": @"🔇 Toggle Logs", @"action": @"toggleLogs"},
-        @{@"title": @"📡 Tester Backend", @"action": @"testBackend"},
-        @{@"title": @"🔄 Reset Compteurs", @"action": @"resetCounters"},
-        @{@"title": @"📤 Exporter JSON", @"action": @"exportJSON"},
+        @{@"title": @"📋 Copier Historique",   @"sel": @"copyHistory"},
+        @{@"title": @"🗑 Vider Historique",     @"sel": @"clearHistory"},
+        @{@"title": @"⚠️ Filtrer Erreurs",      @"sel": @"toggleErrors"},
+        @{@"title": @"📡 Tester Backend",       @"sel": @"testBackend"},
+        @{@"title": @"🔄 Reset Compteurs",      @"sel": @"resetCounters"},
+        @{@"title": @"📤 Exporter JSON",        @"sel": @"exportJSON"},
+        @{@"title": @"🔁 Recharger Timeline",   @"sel": @"reloadTimeline"},
+        @{@"title": @"👤 Infos Compte",         @"sel": @"showAccountInfo"},
     ];
 
     CGFloat btnY = 140;
@@ -115,12 +125,12 @@ void addToHistory(NSString *method, NSString *url, NSInteger status, double ms) 
         b.layer.cornerRadius = 8;
         b.layer.borderWidth = 0.5;
         b.layer.borderColor = [UIColor colorWithRed:0.3 green:0.5 blue:1.0 alpha:0.5].CGColor;
-        [b addTarget:self action:NSSelectorFromString(btn[@"action"]) forControlEvents:UIControlEventTouchUpInside];
+        [b addTarget:self action:NSSelectorFromString(btn[@"sel"]) forControlEvents:UIControlEventTouchUpInside];
         [self.view addSubview:b];
         btnY += 42;
     }
 
-    // TableView historique requêtes
+    // TableView
     self.tableView = [[UITableView alloc] initWithFrame:CGRectMake(0, btnY + 10, self.view.bounds.size.width, self.view.bounds.size.height - btnY - 10) style:UITableViewStylePlain];
     self.tableView.delegate = self;
     self.tableView.dataSource = self;
@@ -128,16 +138,16 @@ void addToHistory(NSString *method, NSString *url, NSInteger status, double ms) 
     self.tableView.separatorColor = [UIColor colorWithWhite:0.2 alpha:1.0];
     [self.view addSubview:self.tableView];
 
-    // Refresh timer
     self.refreshTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(refreshUI) userInfo:nil repeats:YES];
 }
 
 - (void)updateStats {
     self.statsLabel.text = [NSString stringWithFormat:
-        @"✅ Total: %ld   ❌ Erreurs: %ld   📶 Backend: %@   🔁 Interception: %@",
-        (long)totalRequests, (long)failedRequests,
-        API_URL, self.interceptEnabled ? @"ON" : @"OFF"];
-    self.statsLabel.textColor = failedRequests > 0 ? [UIColor colorWithRed:1 green:0.4 blue:0.4 alpha:1] : [UIColor colorWithRed:0.4 green:1 blue:0.6 alpha:1];
+        @"✅ Total: %ld   ❌ Erreurs: %ld   📶 %@",
+        (long)totalRequests, (long)failedRequests, API_URL];
+    self.statsLabel.textColor = failedRequests > 0
+        ? [UIColor colorWithRed:1 green:0.4 blue:0.4 alpha:1]
+        : [UIColor colorWithRed:0.4 green:1 blue:0.6 alpha:1];
 }
 
 - (void)refreshUI {
@@ -145,56 +155,45 @@ void addToHistory(NSString *method, NSString *url, NSInteger status, double ms) 
     [self.tableView reloadData];
 }
 
-// ── Actions boutons ──
-
-- (void)toggleIntercept {
-    self.interceptEnabled = !self.interceptEnabled;
-    NovaLog(@"MENU", @"Interception: %@", self.interceptEnabled ? @"ON" : @"OFF");
-}
-
-- (void)toggleLogs {
-    self.logEnabled = !self.logEnabled;
-    NovaLog(@"MENU", @"Logs: %@", self.logEnabled ? @"ON" : @"OFF");
-}
-
-- (void)toggleErrors {
-    self.showOnlyErrors = !self.showOnlyErrors;
-    [self.tableView reloadData];
+- (void)copyHistory {
+    NSMutableString *text = [NSMutableString string];
+    for (NSDictionary *e in requestHistory) {
+        [text appendFormat:@"[%@] %@ %@ → %ld (%.0fms)\n",
+            e[@"time"], e[@"method"], e[@"url"],
+            [(NSNumber*)e[@"status"] longValue],
+            [(NSNumber*)e[@"ms"] doubleValue]];
+    }
+    [UIPasteboard generalPasteboard].string = text;
+    [self showToast:@"✅ Historique copié !"];
 }
 
 - (void)clearHistory {
     [requestHistory removeAllObjects];
     [self.tableView reloadData];
+    [self showToast:@"🗑 Historique vidé"];
     NovaLog(@"MENU", @"Historique vidé");
+}
+
+- (void)toggleErrors {
+    self.showOnlyErrors = !self.showOnlyErrors;
+    [self.tableView reloadData];
+    [self showToast:self.showOnlyErrors ? @"⚠️ Erreurs uniquement" : @"📋 Tout afficher"];
 }
 
 - (void)resetCounters {
     totalRequests = 0;
     failedRequests = 0;
     [self updateStats];
-    NovaLog(@"MENU", @"Compteurs réinitialisés");
-}
-
-- (void)copyHistory {
-    NSMutableString *text = [NSMutableString string];
-    for (NSDictionary *entry in requestHistory) {
-        [text appendFormat:@"[%@] %@ %@ → %ld (%.0fms)\n",
-            entry[@"time"], entry[@"method"], entry[@"url"],
-            [(NSNumber*)entry[@"status"] longValue],
-            [(NSNumber*)entry[@"ms"] doubleValue]];
-    }
-    [[UIPasteboard generalPasteboard] setString:text];
-    [self showToast:@"Historique copié !"];
-    NovaLog(@"MENU", @"Historique copié dans le presse-papier");
+    [self showToast:@"🔄 Compteurs réinitialisés"];
+    NovaLog(@"MENU", @"Compteurs reset");
 }
 
 - (void)exportJSON {
     NSError *err;
     NSData *data = [NSJSONSerialization dataWithJSONObject:requestHistory ?: @[] options:NSJSONWritingPrettyPrinted error:&err];
     if (data) {
-        NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-        [[UIPasteboard generalPasteboard] setString:json];
-        [self showToast:@"JSON exporté !"];
+        [UIPasteboard generalPasteboard].string = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+        [self showToast:@"📤 JSON copié !"];
         NovaLog(@"MENU", @"JSON exporté: %lu requêtes", (unsigned long)requestHistory.count);
     }
 }
@@ -203,37 +202,59 @@ void addToHistory(NSString *method, NSString *url, NSInteger status, double ms) 
     NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@/lightswitch/api/service/bulk/status", API_URL]];
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
     [NSURLProtocol setProperty:@YES forKey:@"Handled" inRequest:req];
-    NSURLSession *session = [NSURLSession sharedSession];
     CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
-    [[session dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+    [[NSURLSession.sharedSession dataTaskWithRequest:req completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
         double ms = (CFAbsoluteTimeGetCurrent() - start) * 1000;
-        NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
+        NSHTTPURLResponse *http = (NSHTTPURLResponse *)r;
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (!error && http.statusCode == 200) {
-                [self showToast:[NSString stringWithFormat:@"✅ Backend OK (%.0fms)", ms]];
-                NovaLog(@"TEST", @"Backend UP en %.0fms", ms);
-            } else {
-                [self showToast:[NSString stringWithFormat:@"❌ Backend DOWN: %@", error.localizedDescription]];
-                NovaLog(@"TEST", @"Backend DOWN: %@", error.localizedDescription);
-            }
+            if (!e && http.statusCode == 200)
+                [self showToast:[NSString stringWithFormat:@"✅ Backend OK %.0fms", ms]];
+            else
+                [self showToast:[NSString stringWithFormat:@"❌ Backend DOWN: %@", e.localizedDescription]];
         });
     }] resume];
 }
 
-// ── Toast ──
+- (void)reloadTimeline {
+    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@/fortnite/api/calendar/v1/timeline", API_URL]];
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    [NSURLProtocol setProperty:@YES forKey:@"Handled" inRequest:req];
+    [[NSURLSession.sharedSession dataTaskWithRequest:req completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
+        NSHTTPURLResponse *http = (NSHTTPURLResponse *)r;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self showToast:http.statusCode == 200 ? @"✅ Timeline OK" : @"❌ Timeline erreur"];
+        });
+    }] resume];
+}
+
+- (void)showAccountInfo {
+    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@/account/api/public/account/0000000000000000000000000000001", API_URL]];
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
+    [NSURLProtocol setProperty:@YES forKey:@"Handled" inRequest:req];
+    [[NSURLSession.sharedSession dataTaskWithRequest:req completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
+        NSString *json = d ? [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] : @"Erreur";
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"👤 Compte" message:json preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+            [self presentViewController:alert animated:YES completion:nil];
+        });
+    }] resume];
+}
 
 - (void)showToast:(NSString *)msg {
-    UILabel *toast = [[UILabel alloc] init];
-    toast.text = msg;
-    toast.textColor = [UIColor whiteColor];
-    toast.backgroundColor = [UIColor colorWithRed:0.1 green:0.6 blue:0.3 alpha:0.95];
-    toast.textAlignment = NSTextAlignmentCenter;
-    toast.font = [UIFont systemFontOfSize:13];
-    toast.layer.cornerRadius = 10;
-    toast.clipsToBounds = YES;
-    toast.frame = CGRectMake(20, self.view.bounds.size.height - 100, self.view.bounds.size.width - 40, 40);
-    [self.view addSubview:toast];
-    [UIView animateWithDuration:0.3 delay:1.5 options:0 animations:^{ toast.alpha = 0; } completion:^(BOOL f){ [toast removeFromSuperview]; }];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UILabel *toast = [[UILabel alloc] init];
+        toast.text = msg;
+        toast.textColor = [UIColor whiteColor];
+        toast.backgroundColor = [UIColor colorWithRed:0.1 green:0.5 blue:0.3 alpha:0.95];
+        toast.textAlignment = NSTextAlignmentCenter;
+        toast.font = [UIFont systemFontOfSize:13];
+        toast.layer.cornerRadius = 10;
+        toast.clipsToBounds = YES;
+        toast.frame = CGRectMake(20, self.view.bounds.size.height - 100, self.view.bounds.size.width - 40, 40);
+        [self.view addSubview:toast];
+        [UIView animateWithDuration:0.3 delay:1.5 options:0 animations:^{ toast.alpha = 0; } completion:^(BOOL f){ [toast removeFromSuperview]; }];
+    });
 }
 
 // ── TableView ──
@@ -247,32 +268,24 @@ void addToHistory(NSString *method, NSString *url, NSInteger status, double ms) 
     return requestHistory ?: @[];
 }
 
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return [self filteredHistory].count;
-}
+- (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s { return [self filteredHistory].count; }
 
-- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"cell"];
+- (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
+    UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:@"cell"];
     if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"cell"];
-
-    NSDictionary *entry = [self filteredHistory][indexPath.row];
-    NSInteger status = [(NSNumber*)entry[@"status"] integerValue];
-    double ms = [(NSNumber*)entry[@"ms"] doubleValue];
-
-    cell.textLabel.text = [NSString stringWithFormat:@"%@ %@", entry[@"method"], [entry[@"url"] lastPathComponent]];
-    cell.detailTextLabel.text = [NSString stringWithFormat:@"%ld • %.0fms • %@", (long)status, ms, entry[@"url"]];
+    NSDictionary *e = [self filteredHistory][ip.row];
+    NSInteger status = [(NSNumber*)e[@"status"] integerValue];
+    cell.textLabel.text = [NSString stringWithFormat:@"%@ %@", e[@"method"], [e[@"url"] lastPathComponent]];
+    cell.detailTextLabel.text = [NSString stringWithFormat:@"%ld • %.0fms • %@", (long)status, [(NSNumber*)e[@"ms"] doubleValue], e[@"url"]];
     cell.textLabel.font = [UIFont systemFontOfSize:12];
     cell.detailTextLabel.font = [UIFont systemFontOfSize:10];
     cell.backgroundColor = [UIColor clearColor];
     cell.textLabel.textColor = status >= 400 ? [UIColor colorWithRed:1 green:0.4 blue:0.4 alpha:1] : [UIColor colorWithRed:0.4 green:1 blue:0.6 alpha:1];
     cell.detailTextLabel.textColor = [UIColor grayColor];
-
     return cell;
 }
 
-- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    return 48;
-}
+- (CGFloat)tableView:(UITableView *)tv heightForRowAtIndexPath:(NSIndexPath *)ip { return 48; }
 
 @end
 
@@ -303,12 +316,11 @@ void addToHistory(NSString *method, NSString *url, NSInteger status, double ms) 
         self.button.layer.borderWidth = 1.5;
         self.button.layer.borderColor = [UIColor colorWithRed:0.3 green:0.6 blue:1.0 alpha:0.8].CGColor;
         [self.button addTarget:self action:@selector(openMenu) forControlEvents:UIControlEventTouchUpInside];
-        [self addSubview:self.button];
 
-        // Drag support
         UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
         [self.button addGestureRecognizer:pan];
 
+        [self addSubview:self.button];
         [self makeKeyAndVisible];
     }
     return self;
@@ -317,11 +329,13 @@ void addToHistory(NSString *method, NSString *url, NSInteger status, double ms) 
 - (void)handlePan:(UIPanGestureRecognizer *)gesture {
     CGPoint delta = [gesture translationInView:self];
     self.center = CGPointMake(self.center.x + delta.x, self.center.y + delta.y);
-    [gesture setTranslation:CGPointZero inView:self];
+    [gesture setTranslation:CGPointMake(0, 0) inView:self]; // ✅ fix CGPointZero
 }
 
 - (void)openMenu {
-    UIViewController *root = [UIApplication sharedApplication].keyWindow.rootViewController;
+    // ✅ fix keyWindow déprécié
+    UIViewController *root = NovaRootViewController();
+    if (!root) return;
     self.menuVC = [[NovaMenuController alloc] init];
     self.menuVC.modalPresentationStyle = UIModalPresentationPageSheet;
     [root presentViewController:self.menuVC animated:YES completion:nil];
@@ -334,8 +348,6 @@ void addToHistory(NSString *method, NSString *url, NSInteger status, double ms) 
 // MARK: - CustomURLProtocol
 // ─────────────────────────────────────────
 
-static BOOL interceptEnabled = YES;
-
 @interface CustomURLProtocol : NSURLProtocol <NSURLSessionDataDelegate>
 @property (nonatomic, strong) NSURLSessionDataTask *task;
 @property (nonatomic, strong) NSMutableData *buffer;
@@ -346,13 +358,10 @@ static BOOL interceptEnabled = YES;
 
 @implementation CustomURLProtocol
 
-+ (BOOL)canInitWithRequest:(NSURLRequest *)request
-{
++ (BOOL)canInitWithRequest:(NSURLRequest *)request {
     NSString *url = request.URL.absoluteString;
     if ([url containsString:@"/nova/log"]) return NO;
     if ([url containsString:@"/CloudDir/"]) return NO;
-    if (!interceptEnabled) return NO;
-
     if ([url containsString:EPIC_GAMES_URL]) {
         if ([NSURLProtocol propertyForKey:@"Handled" inRequest:request]) return NO;
         return YES;
@@ -362,11 +371,9 @@ static BOOL interceptEnabled = YES;
 
 + (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)request { return request; }
 
-- (void)startLoading
-{
+- (void)startLoading {
     self.startTime = CFAbsoluteTimeGetCurrent();
     self.buffer = [NSMutableData data];
-
     NSMutableURLRequest *req = [self.request mutableCopy];
     self.originalURL = req.URL.absoluteString;
     self.method = req.HTTPMethod ?: @"GET";
@@ -396,7 +403,7 @@ static BOOL interceptEnabled = YES;
     }
 
     [req setURL:components.URL];
-    [req setValue:@"NovaHook/3.0" forHTTPHeaderField:@"X-Nova-Hook"];
+    [req setValue:@"NovaHook/3.1" forHTTPHeaderField:@"X-Nova-Hook"];
     [req setValue:HOOK_VERSION forHTTPHeaderField:@"X-Nova-Version"];
     [NSURLProtocol setProperty:@YES forKey:@"Handled" inRequest:req];
 
@@ -412,8 +419,7 @@ static BOOL interceptEnabled = YES;
 - (void)stopLoading { [self.task cancel]; }
 
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask
-didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler
-{
+didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler {
     NSHTTPURLResponse *http = (NSHTTPURLResponse *)response;
     double ms = (CFAbsoluteTimeGetCurrent() - self.startTime) * 1000;
     NovaLog(@"RES", @"%ld %@ (%.0fms)", (long)http.statusCode, dataTask.currentRequest.URL.path, ms);
@@ -422,14 +428,12 @@ didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSe
     completionHandler(NSURLSessionResponseAllow);
 }
 
-- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data
-{
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data {
     [self.buffer appendData:data];
     [[self client] URLProtocol:self didLoadData:data];
 }
 
-- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error
-{
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
     double ms = (CFAbsoluteTimeGetCurrent() - self.startTime) * 1000;
     if (error) {
         NovaLog(@"ERR", @"%@ (%.0fms)", error.localizedDescription, ms);
@@ -444,16 +448,14 @@ didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSe
 
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
 willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request
- completionHandler:(void (^)(NSURLRequest *))completionHandler
-{
+completionHandler:(void (^)(NSURLRequest *))completionHandler {
     NovaLog(@"REDIRECT", @"→ %@", request.URL.absoluteString);
     completionHandler(request);
 }
 
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
 didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
- completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler
-{
+completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {
     completionHandler(NSURLSessionAuthChallengeUseCredential,
                       [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust]);
 }
@@ -488,8 +490,7 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
 
 static NovaFloatingButton *floatingButton;
 
-__attribute__((constructor)) void entry()
-{
+__attribute__((constructor)) void entry() {
     NovaLog(@"INIT", @"Hook v%@ chargé → %@", HOOK_VERSION, API_URL);
     [NSURLProtocol registerClass:[CustomURLProtocol class]];
 
