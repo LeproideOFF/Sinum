@@ -1,5 +1,5 @@
 // Copyright (c) 2025 Project Nova LLC
-// Hook Fortnite 9.41 - Version complète + Mod Menu Debug v3.1.0
+// Hook Fortnite 9.41 - Version complète + Mod Menu Debug v3.2.0
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
@@ -9,7 +9,7 @@
 #define API_URL @"http://127.0.0.1:3551"
 #define EPIC_GAMES_URL @"ol.epicgames.com"
 #define LOG_SERVER @"http://127.0.0.1:3551/nova/log"
-#define HOOK_VERSION @"3.1.0"
+#define HOOK_VERSION @"3.2.0"
 
 // ─────────────────────────────────────────
 // MARK: - Logger centralisé
@@ -86,7 +86,6 @@ static UIViewController *NovaRootViewController() {
     self.showOnlyErrors = NO;
     self.view.backgroundColor = [UIColor colorWithRed:0.05 green:0.05 blue:0.1 alpha:0.97];
 
-    // Titre
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 50, self.view.bounds.size.width, 40)];
     title.text = [NSString stringWithFormat:@"🔧 Nova Hook v%@ — Debug Menu", HOOK_VERSION];
     title.textColor = [UIColor colorWithRed:0.4 green:0.8 blue:1.0 alpha:1.0];
@@ -94,7 +93,6 @@ static UIViewController *NovaRootViewController() {
     title.font = [UIFont boldSystemFontOfSize:15];
     [self.view addSubview:title];
 
-    // Stats
     self.statsLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 95, self.view.bounds.size.width - 20, 40)];
     self.statsLabel.textColor = [UIColor lightGrayColor];
     self.statsLabel.font = [UIFont systemFontOfSize:11];
@@ -102,16 +100,15 @@ static UIViewController *NovaRootViewController() {
     [self.view addSubview:self.statsLabel];
     [self updateStats];
 
-    // Boutons
     NSArray *buttons = @[
-        @{@"title": @"📋 Copier Historique",   @"sel": @"copyHistory"},
-        @{@"title": @"🗑 Vider Historique",     @"sel": @"clearHistory"},
-        @{@"title": @"⚠️ Filtrer Erreurs",      @"sel": @"toggleErrors"},
-        @{@"title": @"📡 Tester Backend",       @"sel": @"testBackend"},
-        @{@"title": @"🔄 Reset Compteurs",      @"sel": @"resetCounters"},
-        @{@"title": @"📤 Exporter JSON",        @"sel": @"exportJSON"},
-        @{@"title": @"🔁 Recharger Timeline",   @"sel": @"reloadTimeline"},
-        @{@"title": @"👤 Infos Compte",         @"sel": @"showAccountInfo"},
+        @{@"title": @"📋 Copier Historique",  @"sel": @"copyHistory"},
+        @{@"title": @"🗑 Vider Historique",    @"sel": @"clearHistory"},
+        @{@"title": @"⚠️ Filtrer Erreurs",     @"sel": @"toggleErrors"},
+        @{@"title": @"📡 Tester Backend",      @"sel": @"testBackend"},
+        @{@"title": @"🔄 Reset Compteurs",     @"sel": @"resetCounters"},
+        @{@"title": @"📤 Exporter JSON",       @"sel": @"exportJSON"},
+        @{@"title": @"🔁 Recharger Timeline",  @"sel": @"reloadTimeline"},
+        @{@"title": @"👤 Infos Compte",        @"sel": @"showAccountInfo"},
     ];
 
     CGFloat btnY = 140;
@@ -130,7 +127,6 @@ static UIViewController *NovaRootViewController() {
         btnY += 42;
     }
 
-    // TableView
     self.tableView = [[UITableView alloc] initWithFrame:CGRectMake(0, btnY + 10, self.view.bounds.size.width, self.view.bounds.size.height - btnY - 10) style:UITableViewStylePlain];
     self.tableView.delegate = self;
     self.tableView.dataSource = self;
@@ -171,7 +167,6 @@ static UIViewController *NovaRootViewController() {
     [requestHistory removeAllObjects];
     [self.tableView reloadData];
     [self showToast:@"🗑 Historique vidé"];
-    NovaLog(@"MENU", @"Historique vidé");
 }
 
 - (void)toggleErrors {
@@ -185,7 +180,6 @@ static UIViewController *NovaRootViewController() {
     failedRequests = 0;
     [self updateStats];
     [self showToast:@"🔄 Compteurs réinitialisés"];
-    NovaLog(@"MENU", @"Compteurs reset");
 }
 
 - (void)exportJSON {
@@ -194,7 +188,6 @@ static UIViewController *NovaRootViewController() {
     if (data) {
         [UIPasteboard generalPasteboard].string = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
         [self showToast:@"📤 JSON copié !"];
-        NovaLog(@"MENU", @"JSON exporté: %lu requêtes", (unsigned long)requestHistory.count);
     }
 }
 
@@ -257,8 +250,6 @@ static UIViewController *NovaRootViewController() {
     });
 }
 
-// ── TableView ──
-
 - (NSArray *)filteredHistory {
     if (self.showOnlyErrors) {
         return [requestHistory filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSDictionary *e, id b) {
@@ -300,12 +291,12 @@ static UIViewController *NovaRootViewController() {
 
 @implementation NovaFloatingButton
 
-- (instancetype)init {
-    self = [super initWithFrame:CGRectMake(10, 100, 55, 55)];
+- (instancetype)initWithWindowScene:(UIWindowScene *)scene {
+    self = [super initWithWindowScene:scene];
     if (self) {
+        self.frame = CGRectMake(10, 100, 55, 55);
         self.windowLevel = UIWindowLevelAlert + 1;
         self.backgroundColor = [UIColor clearColor];
-        self.hidden = NO;
 
         self.button = [UIButton buttonWithType:UIButtonTypeCustom];
         self.button.frame = self.bounds;
@@ -319,7 +310,6 @@ static UIViewController *NovaRootViewController() {
 
         UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
         [self.button addGestureRecognizer:pan];
-
         [self addSubview:self.button];
         [self makeKeyAndVisible];
     }
@@ -329,11 +319,10 @@ static UIViewController *NovaRootViewController() {
 - (void)handlePan:(UIPanGestureRecognizer *)gesture {
     CGPoint delta = [gesture translationInView:self];
     self.center = CGPointMake(self.center.x + delta.x, self.center.y + delta.y);
-    [gesture setTranslation:CGPointMake(0, 0) inView:self]; // ✅ fix CGPointZero
+    [gesture setTranslation:CGPointMake(0, 0) inView:self];
 }
 
 - (void)openMenu {
-    // ✅ fix keyWindow déprécié
     UIViewController *root = NovaRootViewController();
     if (!root) return;
     self.menuVC = [[NovaMenuController alloc] init];
@@ -403,7 +392,7 @@ static UIViewController *NovaRootViewController() {
     }
 
     [req setURL:components.URL];
-    [req setValue:@"NovaHook/3.1" forHTTPHeaderField:@"X-Nova-Hook"];
+    [req setValue:@"NovaHook/3.2" forHTTPHeaderField:@"X-Nova-Hook"];
     [req setValue:HOOK_VERSION forHTTPHeaderField:@"X-Nova-Version"];
     [NSURLProtocol setProperty:@YES forKey:@"Handled" inRequest:req];
 
@@ -494,8 +483,24 @@ __attribute__((constructor)) void entry() {
     NovaLog(@"INIT", @"Hook v%@ chargé → %@", HOOK_VERSION, API_URL);
     [NSURLProtocol registerClass:[CustomURLProtocol class]];
 
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        floatingButton = [[NovaFloatingButton alloc] init];
-        NovaLog(@"INIT", @"Mod Menu chargé ✓");
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        @try {
+            UIWindowScene *scene = nil;
+            for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
+                if ([s isKindOfClass:[UIWindowScene class]] &&
+                    s.activationState == UISceneActivationStateForegroundActive) {
+                    scene = (UIWindowScene *)s;
+                    break;
+                }
+            }
+            if (scene) {
+                floatingButton = [[NovaFloatingButton alloc] initWithWindowScene:scene];
+                NovaLog(@"INIT", @"Mod Menu chargé ✓");
+            } else {
+                NovaLog(@"WARN", @"Aucune scène active, menu non chargé");
+            }
+        } @catch (NSException *e) {
+            NovaLog(@"ERR", @"Crash menu: %@", e.reason);
+        }
     });
 }
