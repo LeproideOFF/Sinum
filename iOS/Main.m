@@ -32,6 +32,23 @@
 {
     NSMutableURLRequest* modifiedRequest = [[self request] mutableCopy];
 
+    NSString* originalURL = [[self request].URL absoluteString];
+    NSString* method = [self request].HTTPMethod;
+    
+    // ✅ Log de la requête originale
+    NSLog(@"[NOVA] %@ %@", method, originalURL);
+    
+    // Log du body si POST
+    if ([self request].HTTPBody) {
+        NSString* body = [[NSString alloc] initWithData:[self request].HTTPBody encoding:NSUTF8StringEncoding];
+        NSLog(@"[NOVA] BODY: %@", body);
+    }
+    
+    // Log des headers
+    [[self request].allHTTPHeaderFields enumerateKeysAndObjectsUsingBlock:^(NSString* key, NSString* value, BOOL* stop) {
+        NSLog(@"[NOVA] HEADER: %@: %@", key, value);
+    }];
+
     NSString* originalPath = [modifiedRequest.URL path];
     NSString* newBaseURLString = API_URL;
 
@@ -49,6 +66,10 @@
     }
 
     [modifiedRequest setURL:components.URL];
+    
+    // ✅ Log de la requête redirigée
+    NSLog(@"[NOVA] → Redirigé vers: %@", components.URL.absoluteString);
+    
     [NSURLProtocol setProperty:@YES forKey:@"Handled" inRequest:modifiedRequest];
 
 #pragma clang diagnostic push
@@ -66,5 +87,6 @@
 
 __attribute__((constructor)) void entry()
 {
+    NSLog(@"[NOVA] Hook chargé - Redirection vers %@", API_URL);
     [NSURLProtocol registerClass:[CustomURLProtocol class]];
 }
